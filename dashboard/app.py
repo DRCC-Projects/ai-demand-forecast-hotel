@@ -13,6 +13,7 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from PIL import Image
 
 # Database path
 DB_PATH = Path("data/hotel.db")
@@ -125,7 +126,13 @@ def color_by_impact(row):
 
 
 # Sidebar
-st.sidebar.title("🏨 Whitefield Hotel")
+logo_path = Path("dashboard/assets/hotel_logo.png")
+if logo_path.exists():
+    st.sidebar.image(str(logo_path), width=180)
+
+st.sidebar.title("Four Points by Sheraton")
+st.sidebar.write("Bengaluru, Whitefield")
+st.sidebar.write("")
 st.sidebar.write("**Demand Forecasting Dashboard**")
 st.sidebar.write("")
 st.sidebar.write(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
