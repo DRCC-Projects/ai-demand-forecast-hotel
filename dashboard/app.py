@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image
 
 # Database path
-DB_PATH = Path("data/hotel.db")
+DB_PATH = Path(os.getenv("DB_PATH", "data/hotel.db"))
 
 # Page config
 st.set_page_config(
@@ -25,62 +25,87 @@ st.set_page_config(
     layout="wide"
 )
 
+# Database check
+if not DB_PATH.exists():
+    st.error("⚠️ Database not found.")
+    st.info("""
+    This app requires a local SQLite database to run.
+
+    **To run locally:**
+    streamlit run dashboard/app.py
+
+    **For cloud deployment**, connect to Neon.tech PostgreSQL.
+    Contact: info@staxai.in
+    """)
+    st.stop()
+
 
 @st.cache_data(ttl=300)
 def load_forecast_data():
     """Load forecast data for next 30 days"""
     if not DB_PATH.exists():
+        st.warning("Data unavailable")
         return pd.DataFrame()
 
-    conn = sqlite3.connect(DB_PATH)
-    today = date.today()
-    thirty_days = today + timedelta(days=30)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        today = date.today()
+        thirty_days = today + timedelta(days=30)
 
-    query = """
-    SELECT date, occupancy_pred, adr_pred, lower_bound, upper_bound
-    FROM forecasts
-    WHERE date >= ? AND date <= ?
-    ORDER BY date
-    """
+        query = """
+        SELECT date, occupancy_pred, adr_pred, lower_bound, upper_bound
+        FROM forecasts
+        WHERE date >= ? AND date <= ?
+        ORDER BY date
+        """
 
-    df = pd.read_sql_query(query, conn, params=(today.isoformat(), thirty_days.isoformat()))
-    conn.close()
+        df = pd.read_sql_query(query, conn, params=(today.isoformat(), thirty_days.isoformat()))
+        conn.close()
 
-    if len(df) > 0:
-        df['date'] = pd.to_datetime(df['date'])
+        if len(df) > 0:
+            df['date'] = pd.to_datetime(df['date'])
 
-    return df
+        return df
+    except Exception as e:
+        st.warning("Data unavailable")
+        return pd.DataFrame()
 
 
 @st.cache_data(ttl=300)
 def load_upcoming_events():
     """Load upcoming events"""
     if not DB_PATH.exists():
+        st.warning("Data unavailable")
         return pd.DataFrame()
 
-    conn = sqlite3.connect(DB_PATH)
-    today = date.today()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        today = date.today()
 
-    query = """
-    SELECT name, start_date, venue, impact_score, attendance_tier
-    FROM events
-    WHERE start_date >= ?
-    ORDER BY start_date
-    LIMIT 20
-    """
+        query = """
+        SELECT name, start_date, venue, impact_score, attendance_tier
+        FROM events
+        WHERE start_date >= ?
+        ORDER BY start_date
+        LIMIT 20
+        """
 
-    df = pd.read_sql_query(query, conn, params=(today.isoformat(),))
-    conn.close()
+        df = pd.read_sql_query(query, conn, params=(today.isoformat(),))
+        conn.close()
 
-    if len(df) > 0:
-        df['start_date'] = pd.to_datetime(df['start_date'])
+        if len(df) > 0:
+            df['start_date'] = pd.to_datetime(df['start_date'])
 
-    return df
+        return df
+    except Exception as e:
+        st.warning("Data unavailable")
+        return pd.DataFrame()
 
 
 def save_actual_occupancy(date_val, occupancy_pct, adr_inr, rooms_sold):
     """Save actual occupancy data to database"""
     if not DB_PATH.exists():
+        st.warning("Data unavailable")
         return False
 
     try:
@@ -101,7 +126,7 @@ def save_actual_occupancy(date_val, occupancy_pct, adr_inr, rooms_sold):
         conn.close()
         return True
     except Exception as e:
-        st.error(f"Error saving data: {e}")
+        st.warning("Data unavailable")
         return False
 
 
@@ -246,32 +271,36 @@ with col_left:
 
             submitted = st.form_submit_button("Add Event")
             if submitted and event_name and venue:
-                import sqlite3
-                from haversine import haversine, Unit
+                try:
+                    import sqlite3
+                    from haversine import haversine, Unit
 
-                # Default coords - venue lookup not available
-                lat, lon = 12.9915, 77.7260
-                distance_km = 0.0
+                    # Default coords - venue lookup not available
+                    lat, lon = 12.9915, 77.7260
+                    distance_km = 0.0
 
-                attendance_weight = {
-                    "small": 0.2, "medium": 0.5, "large": 1.0
-                }[attendance_tier]
-                impact_score = round(attendance_weight * 1.0 * 1.0, 2)
+                    attendance_weight = {
+                        "small": 0.2, "medium": 0.5, "large": 1.0
+                    }[attendance_tier]
+                    impact_score = round(attendance_weight * 1.0 * 1.0, 2)
 
-                conn = sqlite3.connect("data/hotel.db")
-                conn.execute("""
-                    INSERT OR REPLACE INTO events
-                    (name, start_date, end_date, venue, lat, lon,
-                    distance_km, attendance_tier, impact_score,
-                    source, source_url, scraped_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,'manual','',datetime('now'))
-                """, (event_name, str(start_date), str(end_date),
-                      venue, lat, lon, distance_km,
-                      attendance_tier, impact_score))
-                conn.commit()
-                conn.close()
-                st.success(f"Added: {event_name}")
-                st.rerun()
+                    conn = sqlite3.connect(str(DB_PATH))
+                    conn.execute("""
+                        INSERT OR REPLACE INTO events
+                        (name, start_date, end_date, venue, lat, lon,
+                        distance_km, attendance_tier, impact_score,
+                        source, source_url, scraped_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,'manual','',datetime('now'))
+                    """, (event_name, str(start_date), str(end_date),
+                          venue, lat, lon, distance_km,
+                          attendance_tier, impact_score))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"Added: {event_name}")
+                    st.rerun()
+                except Exception as e:
+                    st.warning("Data unavailable")
+                    st.error(f"Could not add event: {e}")
 
 # Right column - Enter Actual Occupancy
 with col_right:
