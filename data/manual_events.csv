@@ -1,6 +1,13 @@
 name,start_date,end_date,venue,lat,lon,attendance_tier,notes
-Bengaluru Tech Summit,2026-09-15,2026-09-17,KTPO Convention Centre,12.9788,77.7457,large,Annual tech conference
+Bangalore Tech Summit,2026-09-15,2026-09-17,KTPO Convention Centre,12.9788,77.7457,large,Annual tech conference 25000 attendees
 India Auto Expo Bangalore,2026-10-10,2026-10-13,Bangalore International Exhibition Centre,13.1986,77.7066,large,Auto exhibition
-Aero India 2026,2026-02-10,2026-02-14,Yelahanka Air Force Station,13.1378,77.6014,large,Airshow
-Whitefield Music Festival,2026-12-20,2026-12-21,Phoenix Marketcity,12.9965,77.7482,medium,Local music event
+Aero India 2027,2027-02-10,2027-02-14,Yelahanka Air Force Station,13.1378,77.6014,large,Biennial airshow
+Whitefield Music Festival,2026-12-20,2026-12-21,Phoenix Marketcity Whitefield,12.9965,77.7482,medium,Local music festival
 Brigade REAP,2026-11-05,2026-11-05,Brigade Millennium,12.9279,77.6271,medium,Real estate expo
+Bengaluru Marathon,2026-10-18,2026-10-18,Kanteerava Stadium,12.9719,77.5937,large,Annual marathon 25000 runners
+Comic Con Bangalore,2026-12-05,2026-12-06,KTPO Convention Centre,12.9788,77.7457,large,Pop culture convention
+Bengaluru International Film Festival,2026-02-01,2026-02-08,Various venues Bengaluru,12.9716,77.5946,medium,Annual film festival
+India Web Summit Bangalore,2026-08-20,2026-08-21,Sheraton Grand Whitefield,12.9784,77.7480,large,Tech conference
+Nasscom Product Conclave,2026-11-12,2026-11-13,Ritz-Carlton Bangalore,12.9606,77.6486,large,Tech product conference
+Times Litfest Bangalore,2026-12-12,2026-12-14,IISc Campus,12.9798,77.5695,medium,Literature festival
+Bangalore Open,2026-09-22,2026-09-28,KSLTA Tennis,12.9719,77.5937,medium,ATP tennis tournament

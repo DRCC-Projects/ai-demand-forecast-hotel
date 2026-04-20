@@ -230,6 +230,49 @@ with col_left:
     else:
         st.info("No upcoming events found.")
 
+    # Add new event expander
+    with st.expander("+ Add New Event"):
+        with st.form("add_event_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                event_name = st.text_input("Event Name")
+                venue = st.text_input("Venue")
+                attendance_tier = st.selectbox(
+                    "Size", ["small", "medium", "large"])
+            with col2:
+                start_date = st.date_input("Start Date")
+                end_date = st.date_input("End Date")
+                notes = st.text_input("Notes (optional)")
+
+            submitted = st.form_submit_button("Add Event")
+            if submitted and event_name and venue:
+                import sqlite3
+                from haversine import haversine, Unit
+
+                # Default coords - venue lookup not available
+                lat, lon = 12.9915, 77.7260
+                distance_km = 0.0
+
+                attendance_weight = {
+                    "small": 0.2, "medium": 0.5, "large": 1.0
+                }[attendance_tier]
+                impact_score = round(attendance_weight * 1.0 * 1.0, 2)
+
+                conn = sqlite3.connect("data/hotel.db")
+                conn.execute("""
+                    INSERT OR REPLACE INTO events
+                    (name, start_date, end_date, venue, lat, lon,
+                    distance_km, attendance_tier, impact_score,
+                    source, source_url, scraped_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,'manual','',datetime('now'))
+                """, (event_name, str(start_date), str(end_date),
+                      venue, lat, lon, distance_km,
+                      attendance_tier, impact_score))
+                conn.commit()
+                conn.close()
+                st.success(f"Added: {event_name}")
+                st.rerun()
+
 # Right column - Enter Actual Occupancy
 with col_right:
     st.subheader("✏️ Enter Actual Occupancy")

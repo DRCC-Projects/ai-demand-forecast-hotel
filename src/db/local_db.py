@@ -136,25 +136,45 @@ def init_db():
         raise
 
 
-def insert_events(events: List[Dict]):
+def insert_events(events: List[Dict]) -> int:
     """
     Upsert events by (name, start_date, venue).
     Updates existing events if the unique constraint is violated.
     """
+    if not events:
+        return 0
     try:
-        session = _get_session()
-        for event_data in events:
-            event = Event(**event_data)
-            session.merge(event)
-        session.commit()
-        session.close()
-        logger.info(f"Successfully inserted/updated {len(events)} events")
+        eng = _get_engine()
+        with sessionmaker(bind=eng)() as session:
+            inserted = 0
+            for event_data in events:
+                try:
+                    # Check if exists by unique constraint
+                    existing = session.query(Event).filter_by(
+                        name=event_data.get('name'),
+                        start_date=event_data.get('start_date'),
+                        venue=event_data.get('venue')
+                    ).first()
+
+                    if existing:
+                        # Update impact score and scraped_at
+                        for key, value in event_data.items():
+                            if hasattr(existing, key):
+                                setattr(existing, key, value)
+                    else:
+                        event = Event(**{k: v for k, v in event_data.items() if hasattr(Event, k)})
+                        session.add(event)
+                    inserted += 1
+                except Exception as e:
+                    logger.warning(f"Skipping event {event_data.get('name')}: {e}")
+                    session.rollback()
+                    continue
+            session.commit()
+            logger.info(f"Successfully inserted/updated {inserted} events")
+            return inserted
     except Exception as e:
         logger.error(f"Failed to insert events: {e}")
-        if session:
-            session.rollback()
-            session.close()
-        raise
+        return 0
 
 
 def upsert_daily_metrics(rows: List[Dict]):

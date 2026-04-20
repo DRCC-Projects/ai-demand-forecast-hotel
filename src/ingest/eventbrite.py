@@ -119,14 +119,10 @@ def fetch_eventbrite_page(api_key: str, page: int = 1) -> Dict:
     Fetch a single page from Eventbrite API with retry logic.
     Raises requests.exceptions.RequestException on failure.
     """
-    headers = {
-        'Authorization': f'Bearer {api_key}'
-    }
+    # Try alternate endpoint with location.address first
+    url_with_token = f"https://www.eventbriteapi.com/v3/events/search/?location.address=Bengaluru&location.within=15km&token={api_key}"
 
     params = {
-        'location.latitude': HOTEL_LAT,
-        'location.longitude': HOTEL_LON,
-        'location.within': SEARCH_RADIUS,
         'expand': 'venue',
         'status': 'live',
         'page_size': 50,
@@ -134,7 +130,7 @@ def fetch_eventbrite_page(api_key: str, page: int = 1) -> Dict:
     }
 
     logger.info(f"Fetching Eventbrite events - page {page}")
-    response = requests.get(API_BASE_URL, headers=headers, params=params, timeout=30)
+    response = requests.get(url_with_token, params=params, timeout=30)
     logger.info(f"Eventbrite API response: {response.status_code}")
 
     response.raise_for_status()
