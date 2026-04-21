@@ -1,0 +1,68 @@
+[
+  {
+    "name": "GreenPark Bengaluru",
+    "stars": 4,
+    "cheapest": 7389.0,
+    "booking_com": 8100.0,
+    "expedia": null,
+    "agoda": 7389.0,
+    "trip_com": null,
+    "chk_in": "2026-04-21",
+    "fetched_at": "2026-04-21T08:03:02.132842"
+  },
+  {
+    "name": "ibis Bengaluru City Centre",
+    "stars": 3,
+    "cheapest": 8599.0,
+    "booking_com": 8599.0,
+    "expedia": null,
+    "agoda": 8599.0,
+    "trip_com": null,
+    "chk_in": "2026-04-21",
+    "fetched_at": "2026-04-21T08:03:00.796884"
+  },
+  {
+    "name": "Grand Mercure Gopalan Mall",
+    "stars": 4,
+    "cheapest": 14000.0,
+    "booking_com": 14000.0,
+    "expedia": null,
+    "agoda": 14000.0,
+    "trip_com": null,
+    "chk_in": "2026-04-21",
+    "fetched_at": "2026-04-21T08:03:11.950379"
+  },
+  {
+    "name": "Conrad Bengaluru",
+    "stars": 5,
+    "cheapest": 19000.0,
+    "booking_com": 19000.0,
+    "expedia": null,
+    "agoda": 19000.0,
+    "trip_com": null,
+    "chk_in": "2026-04-21",
+    "fetched_at": "2026-04-21T08:02:31.840454"
+  },
+  {
+    "name": "ITC Gardenia",
+    "stars": 5,
+    "cheapest": 19000.0,
+    "booking_com": 19000.0,
+    "expedia": null,
+    "agoda": 19000.0,
+    "trip_com": null,
+    "chk_in": "2026-04-21",
+    "fetched_at": "2026-04-21T08:02:41.449706"
+  },
+  {
+    "name": "The Leela Palace",
+    "stars": 5,
+    "cheapest": 25000.0,
+    "booking_com": 25000.0,
+    "expedia": null,
+    "agoda": 25000.0,
+    "trip_com": null,
+    "chk_in": "2026-04-21",
+    "fetched_at": "2026-04-21T08:02:42.776525"
+  }
+]

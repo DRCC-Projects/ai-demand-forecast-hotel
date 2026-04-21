@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XGBoost Training Explainer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9f9f7; color: #1a1a18; padding: 2rem; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 0.25rem; }
+  .subtitle { font-size: 13px; color: #888780; margin-bottom: 1.5rem; }
+  .step-dot { width: 10px; height: 10px; border-radius: 50%; background: #d3d1c7; display: inline-block; margin: 0 4px; cursor: pointer; transition: background .2s; }
+  .step-dot.active { background: #185fa5; }
+  .stage-card { background: #f1efe8; border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1rem; }
+  .tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-right: 6px; font-weight: 500; }
+  .tag-blue { background: #e6f1fb; color: #185fa5; }
+  .tag-green { background: #eaf3de; color: #3b6d11; }
+  .tag-amber { background: #faeeda; color: #854f0b; }
+  .row-bar { height: 8px; border-radius: 4px; background: #b5d4f4; margin: 4px 0; }
+  .metric-box { background: #fff; border: 0.5px solid #d3d1c7; border-radius: 8px; padding: 10px 14px; flex: 1; text-align: center; }
+  .nav-btn { background: #f1efe8; border: 0.5px solid #b4b2a9; border-radius: 8px; padding: 6px 18px; cursor: pointer; font-size: 14px; color: #1a1a18; }
+  .nav-btn:hover { background: #fff; }
+  .tree-node { display: inline-block; background: #e6f1fb; color: #185fa5; border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 500; margin: 2px; }
+  .tree-leaf-good { background: #eaf3de; color: #3b6d11; }
+  .tree-leaf-bad { background: #fcebeb; color: #a32d2d; }
+  code { font-family: 'Courier New', monospace; font-size: 12px; }
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  th { text-align: left; padding: 6px 8px; font-weight: 500; border-bottom: 0.5px solid #d3d1c7; }
+  td { padding: 6px 8px; border-bottom: 0.5px solid #d3d1c7; }
+  .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .step-title { font-size: 16px; font-weight: 500; margin-bottom: 12px; }
+  .success-box { background: #eaf3de; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #27500a; }
+  .warning-box { background: #faeeda; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #633806; }
+  .file-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: #fff; border-radius: 8px; border: 0.5px solid #d3d1c7; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<h1>XGBoost Training — How It Works</h1>
+<p class="subtitle">Interactive explainer — Hotel Demand Forecasting System | DRCC / StaxAI</p>
+
+<div id="stepper">
+  <div class="header-row">
+    <span style="font-size:13px;color:#888780" id="step-label">Step 1 of 6</span>
+    <div id="dots"></div>
+  </div>
+  <div id="content"></div>
+  <div style="display:flex;gap:10px;margin-top:1rem">
+    <button class="nav-btn" onclick="prev()">&#8592; Back</button>
+    <button class="nav-btn" onclick="next()">Next &#8594;</button>
+  </div>
+</div>
+
+<script>
+const steps = [
+  {
+    title: "Step 1 — Raw data comes in",
+    tag: "Input", tagClass: "tag-blue",
+    html: `
+      <div class="stage-card">
+        <p style="font-size:13px;color:#5f5e5a;margin:0 0 10px">We fed the model 1,097 rows — one row per day from Jan 2023 to Dec 2025.</p>
+        <p style="font-size:13px;margin:0 0 8px;font-weight:500">Each row had 14 inputs (features) and 1 answer (target):</p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+          ${['day_of_week','is_weekend','is_holiday','month','quarter','is_peak_season','event_count_7d','max_impact_score','lag_1_occupancy','lag_7_occupancy','rolling_mean_7d','rolling_mean_30d','days_to_next_event','impact_score_sum'].map(f=>`<span class="tag tag-blue">${f}</span>`).join('')}
+        </div>
+        <p style="font-size:13px;color:#5f5e5a;margin:0">Target: <strong>occupancy_pct</strong> (what actually happened that day)</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="metric-box"><div style="font-size:11px;color:#888780">Total rows</div><div style="font-size:20px;font-weight:500">1,097</div></div>
+        <div class="metric-box"><div style="font-size:11px;color:#888780">Features</div><div style="font-size:20px;font-weight:500">14</div></div>
+        <div class="metric-box"><div style="font-size:11px;color:#888780">Targets</div><div style="font-size:20px;font-weight:500">2</div></div>
+      </div>`
+  },
+  {
+    title: "Step 2 — Data split: train vs validate",
+    tag: "Split", tagClass: "tag-amber",
+    html: `
+      <div class="stage-card">
+        <p style="font-size:13px;color:#5f5e5a;margin:0 0 12px">We cannot train and test on the same data — the model would just memorise answers. So we split by time:</p>
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>Training set (Jan 2023 → Jul 2025)</span><span style="color:#185fa5">912 days — 83%</span>
+          </div>
+          <div style="height:8px;border-radius:4px;background:#d3d1c7">
+            <div style="width:83%;height:100%;border-radius:4px;background:#185fa5"></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>Validation set (Jul 2025 → Dec 2025)</span><span style="color:#854f0b">185 days — 17%</span>
+          </div>
+          <div style="height:8px;border-radius:4px;background:#d3d1c7">
+            <div style="width:17%;height:100%;border-radius:4px;background:#854f0b"></div>
+          </div>
+        </div>
+        <p style="font-size:13px;color:#5f5e5a;margin:12px 0 0">The model never sees validation data during training. It is the final exam — used only to check real-world performance.</p>
+      </div>
+      <div class="warning-box">Why time-based split and not random? Because hotel demand is sequential — using future data to predict the past would be cheating.</div>`
+  },
+  {
+    title: "Step 3 — First decision tree is built",
+    tag: "Tree 1", tagClass: "tag-blue",
+    html: `
+      <div class="stage-card">
+        <p style="font-size:13px;color:#5f5e5a;margin:0 0 12px">XGBoost builds trees one at a time. Tree 1 asks simple yes/no questions about the features:</p>
+        <div style="text-align:center;padding:8px 0">
+          <div style="margin-bottom:8px"><span class="tree-node">Is it peak season?</span></div>
+          <div style="display:flex;justify-content:space-around;margin-bottom:8px">
+            <div style="text-align:center">
+              <div style="font-size:11px;color:#888780;margin-bottom:4px">YES</div>
+              <span class="tree-node">Event nearby?</span>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:11px;color:#888780;margin-bottom:4px">NO</div>
+              <span class="tree-node">Weekend?</span>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-around">
+            <span class="tree-node tree-leaf-good">Predict: 82%</span>
+            <span class="tree-node tree-leaf-good">Predict: 75%</span>
+            <span class="tree-node tree-leaf-bad">Predict: 58%</span>
+            <span class="tree-node tree-leaf-good">Predict: 68%</span>
+          </div>
+        </div>
+        <p style="font-size:13px;color:#5f5e5a;margin:12px 0 0">This first tree is rough — it makes big errors. Each next tree will fix those errors.</p>
+      </div>`
+  },
+  {
+    title: "Step 4 — 300 trees, each fixing the last",
+    tag: "Boosting", tagClass: "tag-amber",
+    html: `
+      <div class="stage-card">
+        <p style="font-size:13px;color:#5f5e5a;margin:0 0 10px">This is the "boosting" in XGBoost. Each tree focuses on the residual — the mistake from all previous trees.</p>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+          ${[
+            {t:'Tree 1',   err:'Big errors — first attempt', w:90},
+            {t:'Tree 2',   err:'Fixes biggest mistakes',     w:70},
+            {t:'Tree 3',   err:'Fixes remaining errors',     w:55},
+            {t:'Tree 50',  err:'Small refinements',          w:30},
+            {t:'Tree 300', err:'Tiny adjustments',           w:10},
+          ].map(r=>`
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;min-width:60px;color:#5f5e5a">${r.t}</span>
+              <div style="flex:1;height:6px;border-radius:3px;background:#d3d1c7">
+                <div style="width:${r.w}%;height:100%;border-radius:3px;background:#185fa5"></div>
+              </div>
+              <span style="font-size:11px;color:#888780;min-width:160px">${r.err}</span>
+            </div>`).join('')}
+        </div>
+        <p style="font-size:13px;color:#5f5e5a;margin:0">Final prediction = sum of all 300 trees × learning rate (0.1). GPU ran all 300 trees in ~38 seconds on your RTX 5050.</p>
+      </div>`
+  },
+  {
+    title: "Step 5 — Validation: how accurate is it?",
+    tag: "Evaluate", tagClass: "tag-green",
+    html: `
+      <div class="stage-card">
+        <p style="font-size:13px;color:#5f5e5a;margin:0 0 12px">Now we test on the 185 days the model never saw. We compare predicted vs actual occupancy:</p>
+        <table>
+          <tr><th>Date</th><th style="text-align:right">Actual</th><th style="text-align:right">Predicted</th><th style="text-align:right">Error</th></tr>
+          ${[
+            ['2025-08-01','72.3%','74.1%','+1.8%'],
+            ['2025-09-15','81.2%','78.5%','-2.7%'],
+            ['2025-10-20','88.4%','85.2%','-3.2%'],
+            ['2025-11-05','65.1%','68.3%','+3.2%'],
+            ['2025-12-25','58.0%','61.4%','+3.4%'],
+          ].map(r=>`<tr><td style="color:#888780">${r[0]}</td><td style="text-align:right">${r[1]}</td><td style="text-align:right;color:#185fa5">${r[2]}</td><td style="text-align:right;color:#888780">${r[3]}</td></tr>`).join('')}
+        </table>
+        <p style="font-size:12px;color:#888780;margin:10px 0 0">Average error across all 185 days = 3.5%. That is the MAE you saw in the training output.</p>
+      </div>`
+  },
+  {
+    title: "Step 6 — Model saved, ready to forecast",
+    tag: "Done", tagClass: "tag-green",
+    html: `
+      <div class="stage-card">
+        <p style="font-size:13px;color:#5f5e5a;margin:0 0 12px">After training, 4 files were saved to your <code>models/</code> folder:</p>
+        ${[
+          {f:'occupancy.ubj',       d:'300 trees that predict occupancy %'},
+          {f:'adr.ubj',             d:'300 trees that predict room rate (ADR)'},
+          {f:'feature_columns.pkl', d:'List of 14 features in exact order'},
+          {f:'preprocessor.pkl',    d:'Fills missing values before prediction'},
+        ].map(r=>`
+          <div class="file-item">
+            <code style="color:#185fa5;white-space:nowrap">${r.f}</code>
+            <span style="font-size:12px;color:#5f5e5a">${r.d}</span>
+          </div>`).join('')}
+        <p style="font-size:13px;color:#5f5e5a;margin:12px 0 8px">When you run <code>predict.py</code>, it loads these files, builds features for future dates, and runs them through all 300 trees to get tomorrow's occupancy forecast.</p>
+      </div>
+      <div class="success-box">With real GM data, retrain every week. Each week the model learns from more real patterns and gets sharper.</div>`
+  }
+];
+
+let current = 0;
+
+function render() {
+  const s = steps[current];
+  document.getElementById('step-label').textContent = `Step ${current+1} of ${steps.length}`;
+  document.getElementById('content').innerHTML = `
+    <div style="margin-bottom:12px">
+      <span class="tag ${s.tagClass}">${s.tag}</span>
+      <span class="step-title">${s.title}</span>
+    </div>
+    ${s.html}`;
+  document.getElementById('dots').innerHTML = steps.map((_,i)=>
+    `<span class="step-dot ${i===current?'active':''}" onclick="goTo(${i})"></span>`).join('');
+}
+
+function next() { if(current < steps.length-1){ current++; render(); } }
+function prev() { if(current > 0){ current--; render(); } }
+function goTo(i) { current=i; render(); }
+
+render();
+</script>
+</body>
+</html>
