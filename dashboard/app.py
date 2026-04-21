@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from haversine import haversine, Unit
+from src.reports.generate_report import generate_pdf_report
 
 DB_PATH = Path("data/hotel.db")
 
@@ -174,6 +175,18 @@ with c1:
     st.markdown(f'<div class="page-title">Demand Intelligence Dashboard</div><div class="page-sub">Real-time occupancy forecasting & revenue optimisation · {now.strftime("%A, %d %b %Y")}</div>', unsafe_allow_html=True)
 with c2:
     st.markdown('<div style="text-align:right;padding-top:12px"><div class="live-badge"><div class="live-dot"></div>Live</div></div>', unsafe_allow_html=True)
+    try:
+        pdf_bytes = generate_pdf_report()
+        st.download_button(
+            label="📄 Download Report",
+            data=pdf_bytes,
+            file_name=f"demand_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="pdf_download"
+        )
+    except Exception as e:
+        st.caption("PDF unavailable")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -196,7 +209,7 @@ for col, label, val, sub in [
     (k5, "Revenue Potential", f"₹{rev_pot/100000:.1f}L", "30-day projection"),
 ]:
     with col:
-        st.markdown(f'<div class="card"><div class="kpi-label">{label}</div><div class="kpi-value">{val}</div><div class="kpi-sub">{sub}</div><div class="kpi-accent"></div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="card"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#64748B;font-weight:700;margin-bottom:6px">{label}</div><div class="kpi-value">{val}</div><div class="kpi-sub">{sub}</div><div class="kpi-accent"></div></div>', unsafe_allow_html=True)
 
 # ── Occupancy chart ───────────────────────────────────────────────────────────
 st.markdown('<div class="sec-head">30-Day Occupancy Forecast</div>', unsafe_allow_html=True)
@@ -232,7 +245,7 @@ if not forecasts.empty:
         annotation_text="Increase rate threshold (80%)", annotation_font=dict(color='#DC2626', size=10))
     layout = base_layout(320)
     layout['yaxis']['title'] = 'Occupancy %'
-    layout['yaxis']['range'] = [50, 100]
+    layout['yaxis']['range'] = [68, 82]
     layout['xaxis']['rangeselector'] = dict(
         buttons=[
             dict(count=7, label='7d', step='day', stepmode='todate'),
@@ -363,43 +376,45 @@ with timeline_col:
     else:
         st.info("No events.")
 
-# ── RevPAR Forecast ───────────────────────────────────────────────────────────
-st.markdown('<div class="sec-head">RevPAR Forecast (₹)</div>', unsafe_allow_html=True)
-if not forecasts.empty:
-    forecasts_copy = forecasts.copy()
-    forecasts_copy['revpar'] = (forecasts_copy['occupancy_pred'] / 100) * forecasts_copy['adr_pred']
-
-    fig_revpar = go.Figure()
-    fig_revpar.add_trace(go.Scatter(
-        x=forecasts_copy['date'],
-        y=forecasts_copy['revpar'],
-        fill='tozeroy',
-        fillcolor='rgba(14,165,233,0.1)',
-        line=dict(color='#1A3A5C', width=2.5),
-        name='RevPAR',
-        hovertemplate='<b>%{x|%d %b}</b><br>RevPAR: ₹%{y:,.0f}<extra></extra>'
-    ))
-    layout_revpar = base_layout(200)
-    layout_revpar['yaxis']['title'] = 'RevPAR (₹)'
-    layout_revpar['yaxis']['tickprefix'] = '₹'
-    fig_revpar.update_layout(**layout_revpar)
-    st.plotly_chart(fig_revpar, use_container_width=True, config={
-        'displayModeBar': True, 'displaylogo': False, 'scrollZoom': True
-    })
-else:
-    st.info("No forecast data.")
-
 # ── Live Market Intelligence ──────────────────────────────────────────────────
 st.markdown('<div class="sec-head">Live Market Intelligence</div>', unsafe_allow_html=True)
 st.markdown("**Live competitor rates — Bengaluru hotels tonight**")
-st.caption("Data from Xotelo API via TripAdvisor OTAs · Refreshes on page load")
 
 try:
+    import json
     sys.path.insert(0, '.')
     from src.ingest.competitor_rates import fetch_all_competitor_rates
 
-    with st.spinner("Fetching live market rates..."):
-        comp_rates = fetch_all_competitor_rates()
+    # Check cache file
+    cache_file = Path("data/competitor_rates.json")
+    cache_age_hours = None
+    use_cache = False
+
+    if cache_file.exists():
+        cache_modified = datetime.fromtimestamp(cache_file.stat().st_mtime)
+        cache_age = datetime.now() - cache_modified
+        cache_age_hours = cache_age.total_seconds() / 3600
+
+        if cache_age_hours < 6:
+            use_cache = True
+
+    # Show cache status and refresh button
+    col_status, col_btn = st.columns([3, 1])
+    with col_status:
+        if use_cache and cache_age_hours is not None:
+            st.caption(f"Data from Xotelo API · Last updated: {cache_age_hours:.1f} hours ago")
+        else:
+            st.caption("Data from Xotelo API · Fetching fresh rates...")
+    with col_btn:
+        force_refresh = st.button("🔄 Refresh Rates", key="refresh_rates")
+
+    # Load or fetch data
+    if use_cache and not force_refresh:
+        with open(cache_file, 'r') as f:
+            comp_rates = json.load(f)
+    else:
+        with st.spinner("Fetching live market rates..."):
+            comp_rates = fetch_all_competitor_rates()
 
     if comp_rates:
         our_adr = avg_adr  # from existing variable
@@ -412,28 +427,33 @@ try:
         col_chart, col_table = st.columns([1.2, 0.8])
 
         with col_chart:
-            colors = ['#16A34A' if r > our_adr else '#DC2626'
-                      for r in comp_df['cheapest'].fillna(0)]
+            # Build list with our ADR + competitors
+            all_hotels = list(comp_df['name']) + ['Four Points (Our ADR)']
+            all_rates = list(comp_df['cheapest']) + [our_adr]
+
+            # Grey for hotels priced higher, Red for lower, Gold for our ADR
+            colors = []
+            for i, rate in enumerate(all_rates):
+                if i == len(all_rates) - 1:  # Our ADR
+                    colors.append('#F59E0B')  # Amber/Gold
+                elif rate > our_adr:
+                    colors.append('#94A3B8')  # Grey (not a threat)
+                else:
+                    colors.append('#DC2626')  # Red (undercuts us)
 
             fig_comp = go.Figure()
             fig_comp.add_trace(go.Bar(
-                y=comp_df['name'],
-                x=comp_df['cheapest'],
+                y=all_hotels,
+                x=all_rates,
                 orientation='h',
                 marker_color=colors,
                 opacity=0.85,
                 hovertemplate='%{y}: ₹%{x:,.0f}<extra></extra>'
             ))
-            fig_comp.add_vline(
-                x=our_adr,
-                line=dict(color='#1A3A5C', width=2, dash='dash'),
-                annotation_text=f'Our ADR ₹{our_adr:,.0f}',
-                annotation_font=dict(color='#1A3A5C', size=11)
-            )
-            layout_comp = base_layout(350)
+            layout_comp = base_layout(380)
             layout_comp['xaxis']['title'] = 'Rate (INR)'
             layout_comp['xaxis']['tickprefix'] = '₹'
-            layout_comp['margin'] = dict(l=180, r=20, t=20, b=20)
+            layout_comp['margin'] = dict(l=220, r=20, t=20, b=20)
             fig_comp.update_layout(**layout_comp)
             st.plotly_chart(fig_comp, use_container_width=True,
                 config={'displayModeBar': False})
@@ -449,7 +469,7 @@ try:
             })
 
             def color_position(val):
-                if '▲' in str(val): return 'color: #16A34A; font-weight:600'
+                if '▲' in str(val): return 'color: #94A3B8; font-weight:600'
                 elif '▼' in str(val): return 'color: #DC2626; font-weight:600'
                 return ''
 
@@ -459,14 +479,30 @@ try:
 
         cheaper = comp_df[comp_df['cheapest'] < our_adr]
         pricier = comp_df[comp_df['cheapest'] > our_adr]
-        st.markdown(f"""
-        <div style="background:#F0FDF4;border:1px solid #BBF7D0;
-        border-radius:8px;padding:12px 16px;margin-top:8px;font-size:13px">
-            <strong style="color:#16A34A">Market Position:</strong>
-            {len(pricier)} hotels pricing higher than you ·
-            {len(cheaper)} hotels pricing lower ·
-            Your rate ₹{our_adr:,.0f} vs market cheapest ₹{comp_df['cheapest'].min():,.0f}
-        </div>""", unsafe_allow_html=True)
+
+        # Check if we are the cheapest
+        we_are_cheapest = len(cheaper) == 0
+
+        if we_are_cheapest:
+            cheapest_competitor = comp_df['cheapest'].min()
+            rate_increase_15pct = our_adr * 1.15
+            st.markdown(f"""
+            <div style="background:#FEF9C3;border:1px solid #FDE047;
+            border-radius:8px;padding:12px 16px;margin-top:8px;font-size:13px">
+                <strong style="color:#D97706">⚠️ Pricing Opportunity:</strong>
+                Four Points at ₹{our_adr:,.0f} is below all competitors.
+                Even a 15% rate increase (₹{rate_increase_15pct:,.0f}) would still
+                keep you competitive vs GreenPark at ₹{cheapest_competitor:,.0f}.
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background:#F0FDF4;border:1px solid #BBF7D0;
+            border-radius:8px;padding:12px 16px;margin-top:8px;font-size:13px">
+                <strong style="color:#16A34A">Market Position:</strong>
+                {len(pricier)} hotels pricing higher than you ·
+                {len(cheaper)} hotels pricing lower ·
+                Your rate ₹{our_adr:,.0f} vs market cheapest ₹{comp_df['cheapest'].min():,.0f}
+            </div>""", unsafe_allow_html=True)
     else:
         st.info("Could not fetch market rates. Check internet connection.")
 except Exception as e:
@@ -537,7 +573,6 @@ with col_r:
 st.markdown('<div class="sec-head">Missed Revenue Analysis</div>', unsafe_allow_html=True)
 
 actuals_90 = load_actuals()
-missed_col_l, missed_col_r = st.columns([1.2, 0.8], gap="large")
 
 if not actuals_90.empty and not forecasts.empty:
     # Merge actuals with forecasts on date
@@ -558,6 +593,8 @@ if not actuals_90.empty and not forecasts.empty:
         missed_df = merged[merged['missed_rooms'] > 0].copy()
 
         if not missed_df.empty:
+            missed_col_l, missed_col_r = st.columns([1.2, 0.8], gap="large")
+
             with missed_col_l:
                 st.markdown("**Missed Revenue by Date (₹)**")
                 fig_missed = go.Figure()
@@ -583,34 +620,49 @@ if not actuals_90.empty and not forecasts.empty:
                 best_opp = missed_df.loc[missed_df['missed_revenue'].idxmax()]
 
                 st.markdown(f"""<div class="card">
-                  <div class="kpi-label">Total Missed Revenue</div>
+                  <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#64748B;font-weight:700;margin-bottom:6px">Total Missed Revenue</div>
                   <div class="kpi-value">₹{total_missed/100000:.2f}L</div>
                   <div class="kpi-sub">Last 90 days</div>
                 </div>""", unsafe_allow_html=True)
 
                 st.markdown(f"""<div class="card">
-                  <div class="kpi-label">Average Per Day</div>
+                  <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#64748B;font-weight:700;margin-bottom:6px">Average Per Day</div>
                   <div class="kpi-value">₹{avg_missed:,.0f}</div>
                   <div class="kpi-sub">When underpriced</div>
                 </div>""", unsafe_allow_html=True)
 
                 st.markdown(f"""<div class="card">
-                  <div class="kpi-label">Days Underpriced</div>
+                  <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#64748B;font-weight:700;margin-bottom:6px">Days Underpriced</div>
                   <div class="kpi-value">{days_underpriced}</div>
                   <div class="kpi-sub">Out of {len(merged)} days</div>
                 </div>""", unsafe_allow_html=True)
 
                 st.markdown(f"""<div class="card">
-                  <div class="kpi-label">Best Recovery Date</div>
+                  <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.12em;color:#64748B;font-weight:700;margin-bottom:6px">Best Recovery Date</div>
                   <div class="kpi-value">{best_opp['date'].strftime('%d %b')}</div>
                   <div class="kpi-sub">₹{best_opp['missed_revenue']:,.0f} missed</div>
                 </div>""", unsafe_allow_html=True)
         else:
-            st.info("No missed revenue detected. Forecasts were higher than actuals.")
+            st.markdown("""
+            <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;
+            padding:14px 18px;font-size:13px;color:#0369A1">
+                <strong>📊 No Missed Revenue Detected</strong><br>
+                Enter actual occupancy data via the form below to see missed revenue analysis and pricing gaps.
+            </div>""", unsafe_allow_html=True)
     else:
-        st.info("No missed revenue data yet. Enter actual occupancy data to see analysis.")
+        st.markdown("""
+        <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;
+        padding:14px 18px;font-size:13px;color:#0369A1">
+            <strong>📊 Missed Revenue Analysis</strong><br>
+            Enter actual occupancy data via the form below to see missed revenue analysis and pricing gaps.
+        </div>""", unsafe_allow_html=True)
 else:
-    st.info("No missed revenue data yet. Enter actual occupancy data to see analysis.")
+    st.markdown("""
+    <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;
+    padding:14px 18px;font-size:13px;color:#0369A1">
+        <strong>📊 Missed Revenue Analysis</strong><br>
+        Enter actual occupancy data via the form below to see missed revenue analysis and pricing gaps.
+    </div>""", unsafe_allow_html=True)
 
 # ── Weekend vs Weekday Analysis ───────────────────────────────────────────────
 st.markdown('<div class="sec-head">Occupancy Pattern Analysis</div>', unsafe_allow_html=True)
@@ -632,17 +684,23 @@ with pattern_col_l:
         # Color by weekend/weekday
         colors = ['#0EA5E9' if is_wknd else '#1A3A5C' for is_wknd in day_avg['is_weekend']]
 
-        fig_dow = go.Figure()
-        fig_dow.add_trace(go.Bar(
+        fig_dow = go.Figure(go.Bar(
             x=day_avg['day_name'],
             y=day_avg['occupancy_pred'],
-            marker=dict(color=colors, opacity=0.85),
-            hovertemplate='<b>%{x}</b><br>Avg: %{y:.1f}%<extra></extra>'
+            marker_color=colors
         ))
-        layout_dow = base_layout(280)
-        layout_dow['yaxis']['title'] = 'Avg Occupancy %'
-        layout_dow['xaxis']['title'] = 'Day of Week'
-        fig_dow.update_layout(**layout_dow)
+        fig_dow.update_traces(
+            text=[f"{v:.1f}%" for v in day_avg['occupancy_pred']],
+            textposition='outside',
+            textfont=dict(size=11, color='#1E293B')
+        )
+        fig_dow.update_layout(
+            yaxis=dict(range=[60, 88], title='Occupancy %',
+                       showgrid=True, gridcolor='#EFF3F8'),
+            xaxis=dict(title='Day of Week'),
+            height=280,
+            margin=dict(l=40, r=20, t=30, b=40)
+        )
         st.plotly_chart(fig_dow, use_container_width=True, config={
             'displayModeBar': True, 'displaylogo': False, 'scrollZoom': True,
             'toImageButtonOptions': {'scale': 2}
@@ -651,51 +709,44 @@ with pattern_col_l:
         st.info("No forecast data.")
 
 with pattern_col_r:
-    st.markdown("**Monthly Forecast Pattern**")
+    st.markdown("**Weekly Forecast Pattern**")
     if not forecasts.empty:
-        forecasts_monthly = forecasts.copy()
-        forecasts_monthly['month'] = forecasts_monthly['date'].dt.month
+        forecasts_weekly = forecasts.copy()
+        forecasts_weekly['week_label'] = forecasts_weekly['date'].dt.strftime('W%U')
 
-        # Group by month
-        month_avg = forecasts_monthly.groupby('month').agg({
-            'occupancy_pred': 'mean',
-            'adr_pred': 'mean'
-        }).reset_index()
+        # Group by week
+        week_avg = forecasts_weekly.groupby('week_label').agg(
+            occ=('occupancy_pred', 'mean'),
+            adr=('adr_pred', 'mean')
+        ).reset_index()
 
-        month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        month_avg['month_name'] = [month_names[m-1] for m in month_avg['month']]
-
-        fig_month = go.Figure()
-        fig_month.add_trace(go.Bar(
-            x=month_avg['month_name'],
-            y=month_avg['occupancy_pred'],
-            name='Occupancy %',
-            marker=dict(color='#1A3A5C', opacity=0.8),
-            yaxis='y',
-            hovertemplate='<b>%{x}</b><br>Occ: %{y:.1f}%<extra></extra>'
+        fig_monthly = go.Figure()
+        fig_monthly.add_trace(go.Bar(
+            x=week_avg['week_label'],
+            y=week_avg['occ'],
+            name='Avg Occupancy %',
+            marker_color='#1A3A5C',
+            yaxis='y'
         ))
-        fig_month.add_trace(go.Bar(
-            x=month_avg['month_name'],
-            y=month_avg['adr_pred'] / 100,
-            name='ADR ÷ 100',
-            marker=dict(color='#0EA5E9', opacity=0.8),
-            yaxis='y2',
-            hovertemplate='<b>%{x}</b><br>ADR: ₹%{y:,.0f}<extra></extra>'
+        fig_monthly.add_trace(go.Scatter(
+            x=week_avg['week_label'],
+            y=week_avg['adr'],
+            name='ADR (₹)',
+            line=dict(color='#0EA5E9', width=2),
+            mode='lines+markers',
+            yaxis='y2'
         ))
-        layout_month = base_layout(280)
-        layout_month['yaxis']['title'] = 'Occupancy %'
-        layout_month['yaxis2'] = dict(
-            title='ADR ÷ 100',
-            overlaying='y',
-            side='right',
-            gridcolor='rgba(0,0,0,0)',
-            tickfont=dict(size=11)
+        layout_weekly = base_layout(280)
+        layout_weekly['yaxis']['title'] = 'Occupancy %'
+        layout_weekly['yaxis']['range'] = [60, 85]
+        layout_weekly['yaxis2'] = dict(
+            title='ADR (₹)', overlaying='y',
+            side='right', tickprefix='₹'
         )
-        layout_month['xaxis']['title'] = 'Month'
-        layout_month['barmode'] = 'group'
-        fig_month.update_layout(**layout_month)
-        st.plotly_chart(fig_month, use_container_width=True, config={
+        layout_weekly['legend'] = dict(orientation='h', y=-0.2)
+        layout_weekly['xaxis']['title'] = 'Week'
+        fig_monthly.update_layout(**layout_weekly)
+        st.plotly_chart(fig_monthly, use_container_width=True, config={
             'displayModeBar': True, 'displaylogo': False, 'scrollZoom': True,
             'toImageButtonOptions': {'scale': 2}
         })
