@@ -671,35 +671,27 @@ pattern_col_l, pattern_col_r = st.columns(2, gap="large")
 with pattern_col_l:
     st.markdown("**Avg Occupancy by Day of Week**")
     if not fc30.empty:
-        fc30_pattern = fc30.copy()
-        fc30_pattern['day_name'] = fc30_pattern['date'].dt.strftime('%a')
-        fc30_pattern['is_weekend'] = fc30_pattern['date'].dt.dayofweek >= 5
-        fc30_pattern['day_order'] = fc30_pattern['date'].dt.dayofweek
-
-        # Group by day
-        day_avg = fc30_pattern.groupby(['day_name', 'day_order', 'is_weekend']).agg({
-            'occupancy_pred': 'mean'
-        }).reset_index().sort_values('day_order')
-
-        # Color by weekend/weekday
-        colors = ['#0EA5E9' if is_wknd else '#1A3A5C' for is_wknd in day_avg['is_weekend']]
+        day_order = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+        dow_num   = {'Mon':0,'Tue':1,'Wed':2,'Thu':3,'Fri':4,'Sat':5,'Sun':6}
+        fc30['dow_name'] = fc30['date'].dt.strftime('%a')
+        day_avg = fc30.groupby('dow_name')['occupancy_pred'].mean().reindex(day_order).reset_index()
+        day_avg.columns = ['day','occ']
 
         fig_dow = go.Figure(go.Bar(
-            x=day_avg['day_name'],
-            y=day_avg['occupancy_pred'],
-            marker_color=colors
-        ))
-        fig_dow.update_traces(
-            text=[f"{v:.1f}%" for v in day_avg['occupancy_pred']],
+            x=day_avg['day'],
+            y=day_avg['occ'],
+            marker_color=['#0EA5E9' if d in ['Sat','Sun'] else '#1A3A5C'
+                          for d in day_avg['day']],
+            text=[f"{v:.1f}%" for v in day_avg['occ']],
             textposition='outside',
-            textfont=dict(size=11, color='#1E293B')
-        )
+        ))
         fig_dow.update_layout(
-            yaxis=dict(range=[60, 88], title='Occupancy %',
-                       showgrid=True, gridcolor='#EFF3F8'),
-            xaxis=dict(title='Day of Week'),
-            height=280,
-            margin=dict(l=40, r=20, t=30, b=40)
+            paper_bgcolor='white', plot_bgcolor='#F8FAFC',
+            height=240, margin=dict(l=20,r=10,t=20,b=20),
+            yaxis=dict(range=[60,85],gridcolor='#EFF3F8'),
+            xaxis=dict(tickfont=dict(size=11)),
+            showlegend=False,
+            font=dict(family='Inter',size=11,color='#64748B')
         )
         st.plotly_chart(fig_dow, use_container_width=True, config={
             'displayModeBar': True, 'displaylogo': False, 'scrollZoom': True,
